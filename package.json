@@ -30,7 +30,7 @@
 		"lint": "eslint nodes credentials package.json",
 		"lintfix": "eslint nodes credentials package.json --fix",
 		"prepublishOnly": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes credentials package.json",
-		"publish": "npm version patch && npm publish"
+		"publishNPM": "npm version patch && npm publish"
 	},
 	"files": [
 		"dist"
