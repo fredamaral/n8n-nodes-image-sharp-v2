@@ -14,20 +14,6 @@ const optimizeOperation: INodeProperties[] = [
 		description: 'Max file size in bytes',
 	},
 	{
-		displayName: 'Input Binary Field',
-		name: 'binaryPropertyName',
-		type: 'string',
-		displayOptions: {
-			show: {
-				operation: ['optimize'],
-			},
-		},
-		default: 'data',
-		placeholder: '',
-		required: true,
-		description: 'The name of the input binary field containing the image',
-	},
-	{
 		displayName: 'Output Formats',
 		name: 'formats',
 		type: 'multiOptions',
@@ -97,6 +83,15 @@ export const imageSharpOperations: INodeProperties[] = [
 			},
 		],
 		default: 'optimize',
+	},
+	{
+		displayName: 'Input Binary Field',
+		name: 'binaryPropertyName',
+		type: 'string',		
+		default: 'data',
+		placeholder: '',
+		required: true,
+		description: 'The name of the input binary field containing the image',
 	},
 	...optimizeOperation,
 	...generateFromSVGOperation,

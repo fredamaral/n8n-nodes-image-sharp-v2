@@ -1,5 +1,5 @@
 {
-	"name": "n8n-nodes-image-sharp",
+	"name": "n8n-nodes-image-sharp-v2",
 	"version": "0.1.1",
 	"description": "n8n node for image processing and optimization with sharp",
 	"keywords": [
@@ -8,7 +8,6 @@
 		"optimization"
 	],
 	"license": "MIT",
-	"homepage": "https://zetanova.eu",
 	"author": {
 		"name": "Frederico Amaral",
 		"email": "fredamaral@gmail.com"
