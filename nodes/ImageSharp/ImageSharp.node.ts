@@ -3,13 +3,13 @@ import {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	NodeOperationError
+	NodeOperationError,
 } from 'n8n-workflow';
 import { imageSharpOperations } from './ImageSharpDescription';
-import sharp, { FormatEnum, OutputInfo } from 'sharp';
-import { optimizeDefaults } from './ImageSharpDefaults';
-import path from "node:path";
-
+import { FormatEnum } from 'sharp';
+import path from 'node:path';
+import { SharpService } from './sharpService';
+import { LoggerProxy as Logger } from 'n8n-workflow';
 
 // const configuredOutputs = (parameters: INodeParameters) => {
 // 	//const formats = ((parameters.formats as IDataObject)?.values as IDataObject[]) ?? [];
@@ -26,177 +26,181 @@ import path from "node:path";
 
 export class ImageSharp implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Image Sharp',
+		displayName: 'Image Sharp V2',
 		name: 'imageSharp',
-		icon: "file:imagesharp.svg",
+		icon: 'file:imagesharp.svg',
 		group: ['transform'],
 		version: 1,
-		description: 'Process and optimize an image',
+		description: 'Execute operations using Sharp',
 		defaults: {
-			name: 'Image Sharp',
+			name: 'Image Sharp v2',
 		},
 		inputs: ['main'],
 		//outputs: `={{(${configuredOutputs})($parameter)}}`,
 		outputs: ['main'],
 		properties: [
-			...imageSharpOperations,
-			{
-				displayName: 'Input Binary Field',
-				name: 'binaryPropertyName',
-				type: 'string',
-				default: 'data',
-				placeholder: '',
-				required: true,
-				description: 'The name of the input binary field containing the image',
-			},
-			{
-				displayName: 'Output Formats',
-				name: 'formats',
-				type: 'multiOptions',
-				options: [
-					{
-						name: 'Png',
-						value: 'png',
-					},
-					{
-						name: 'Jpeg',
-						value: 'jpeg',
-					},
-					{
-						name: 'Webp',
-						value: 'webp',
-					},
-					{
-						name: 'Avif',
-						value: 'avif',
-					}
-				],
-				default: ['png', 'jpeg'],
-				required: true,
-				description: 'The image output formats',
-			}
+			...imageSharpOperations,			
 		],
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const operation = this.getNodeParameter('operation', 0);
+
+		Logger.info(`operation: ${operation}`);
+
+		switch (operation) {
+			case 'generate_svg':
+				return ImageSharp.generateImageFromSVG(this);
+			case 'optimize':
+			default:
+				return ImageSharp.optimize(this);
+		}
+	}
+
+	static async generateImageFromSVG(a: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = a.getInputData();
+		const returnData: INodeExecutionData[] = [];
+
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			try {
+				// É assim que você pega o valor do parâmetro 'svgString' para o item atual
+				const svgString = a.getNodeParameter('svgString', itemIndex) as string;
+				const binaryPropertyName = a.getNodeParameter('binaryPropertyName', itemIndex) as string;
+
+				if (!svgString) {
+					throw new NodeOperationError(
+						a.getNode(),
+						'O parâmetro "SVG String" é obrigatório para esta operação.',
+						{ itemIndex },
+					);
+				}
+
+				const fileName = 'nome-do-arquivo.png'; // Você pode gerar um nome de arquivo dinamicamente
+
+				const info = await SharpService.imageGeneratorFromSVGString(
+					svgString,
+					fileName, // Você pode gerar um nome de arquivo dinamicamente
+					'png', // Você pode adicionar um parâmetro para o usuário escolher o formato
+				);
+
+				const binary = await a.helpers.prepareBinaryData(info.data, fileName, 'image/png');
+
+				// Adiciona os dados ao resultado que será retornado para o próximo nó
+				returnData.push({
+					json: { message: `SVG para o item ${itemIndex} processado.` },
+					pairedItem: { item: itemIndex },
+					binary: {
+						[binaryPropertyName]: binary,
+					},
+				});
+			} catch (error) {
+				if (a.continueOnFail()) {
+					returnData.push({ json: { error: error.message }, pairedItem: { item: itemIndex } });
+					continue;
+				}
+				throw error;
+			}
+		}
+
+		return [returnData];
+	}
+
+	static async optimize(a: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		let returnData: INodeExecutionData[][] = [];
 
-		const items = this.getInputData();
+		const items = a.getInputData();
 
 		let item: INodeExecutionData;
 		let binaryPropertyName: string;
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			try {
-				binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string
-				item = items[itemIndex]
+				binaryPropertyName = a.getNodeParameter('binaryPropertyName', itemIndex) as string;
+				item = items[itemIndex];
 
 				if (!item.binary)
-					throw new NodeOperationError(this.getNode(), `input data required`, { itemIndex })
+					throw new NodeOperationError(a.getNode(), `input data required`, { itemIndex });
 
-				const inputData = item.binary[binaryPropertyName]
+				const inputData = item.binary[binaryPropertyName];
 
 				if (inputData.fileType && inputData.fileType !== 'image')
-					throw new NodeOperationError(this.getNode(), `unsupported file type: ${inputData.fileType}`, { itemIndex })
+					throw new NodeOperationError(
+						a.getNode(),
+						`unsupported file type: ${inputData.fileType}`,
+						{ itemIndex },
+					);
 
-				const input = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName)
+				const input = await a.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
 
-				const formats = this.getNodeParameter('formats', itemIndex) as string[]
+				const formats = a.getNodeParameter('formats', itemIndex) as string[];
 
 				if (itemIndex === 0) {
-					const nodeOutputs = this.getNodeOutputs()
+					const nodeOutputs = a.getNodeOutputs();
 					returnData = new Array(nodeOutputs.length).fill(0).map(() => []);
 				}
 
-				const imageOutputs: Promise<{ format: string, data: Buffer; info: OutputInfo }>[] = []
-
-				const imgSharp = sharp(input)
-
-				for (const format of formats) {
-					let pipe = imgSharp
-
-					switch (<keyof FormatEnum>format) {
-						case 'png':
-							pipe = pipe.png(optimizeDefaults.png)
-							break
-						case 'jpeg':
-							pipe = pipe.jpeg(optimizeDefaults.jpeg)
-							break
-						case 'webp':
-							pipe = pipe.webp(optimizeDefaults.webp)
-							break
-						case 'avif':
-							pipe = pipe.avif(optimizeDefaults.avif)
-							break
-						default:
-							throw new NodeOperationError(this.getNode(), `unsupported image format '${format}'`, { itemIndex })
-					}
-
-					const r = pipe.toBuffer({ resolveWithObject: true })
-						.then(n => { return { format, ...n } })
-
-					imageOutputs.push(r)
-				}
-
+				const imageOutputs = await SharpService.optimize(input, formats, itemIndex);
 
 				for await (const imageOutput of imageOutputs) {
-
 					//const outputIndex = formats.indexOf(imageOutput.format)
-					const outputIndex = 0
+					const outputIndex = 0;
 
 					if (outputIndex < 0)
-						throw new NodeOperationError(this.getNode(), `output format '${imageOutput.format}' unknown`, { itemIndex })
+						throw new NodeOperationError(
+							a.getNode(),
+							`output format '${imageOutput.format}' unknown`,
+							{ itemIndex },
+						);
 
-					let fileName = inputData.fileName
-					let ext = inputData.fileExtension
-					let mimeType = inputData.mimeType
+					let fileName = inputData.fileName;
+					let ext = inputData.fileExtension;
+					let mimeType = inputData.mimeType;
 
 					switch (<keyof FormatEnum>imageOutput.format) {
 						case 'png':
-							mimeType = 'image/png'
-							ext = 'png'
-							break
+							mimeType = 'image/png';
+							ext = 'png';
+							break;
 						case 'jpeg':
-							mimeType = 'image/jpeg'
-							ext = 'jpg'
-							break
+							mimeType = 'image/jpeg';
+							ext = 'jpg';
+							break;
 						case 'webp':
-							mimeType = 'image/webp'
-							ext = 'webp'
-							break
+							mimeType = 'image/webp';
+							ext = 'webp';
+							break;
 						case 'avif':
-							mimeType = 'image/avif'
-							ext = 'avif'
-							break
+							mimeType = 'image/avif';
+							ext = 'avif';
+							break;
 					}
 
 					if (fileName) {
-						const name = path.basename(fileName, path.extname(fileName))
-						fileName = `${name}.min.${ext}`
+						const name = path.basename(fileName, path.extname(fileName));
+						fileName = `${name}.min.${ext}`;
 					}
 
-					const binary = await this.helpers.prepareBinaryData(imageOutput.data, fileName, mimeType)
+					const binary = await a.helpers.prepareBinaryData(imageOutput.data, fileName, mimeType);
 
 					returnData[outputIndex].push({
 						pairedItem: { item: itemIndex },
 						json: { ...imageOutput.info },
 						binary: {
-							[binaryPropertyName]: binary
-						}
+							[binaryPropertyName]: binary,
+						},
 					});
 				}
-
 			} catch (error) {
-				console.error(error)
+				console.error(error);
 
-				if (this.continueOnFail()) {
+				if (a.continueOnFail()) {
 					returnData[0].push({ pairedItem: itemIndex, json: { error: error.message } });
 				} else {
 					if (error.context) {
-						error.context.itemIndex = itemIndex
+						error.context.itemIndex = itemIndex;
 						throw error;
 					}
-					throw new NodeOperationError(this.getNode(), error, {
+					throw new NodeOperationError(a.getNode(), error, {
 						itemIndex,
 					});
 				}
@@ -205,6 +209,6 @@ export class ImageSharp implements INodeType {
 
 		//return this.prepareOutputData(items);
 
-		return returnData
+		return returnData;
 	}
 }
