@@ -1,4 +1,4 @@
-import sharp, { FormatEnum, OutputInfo } from 'sharp';
+import sharp, { FormatEnum, OutputInfo, OverlayOptions } from 'sharp';
 import { optimizeDefaults } from './ImageSharpDefaults';
 
 export class SharpService {
@@ -60,5 +60,49 @@ export class SharpService {
 		}
 
 		return imageOutputs;
+	}
+
+	static async composite(
+		baseInput: Buffer,
+		images: {
+			input: Buffer;
+			top: number;
+			left: number;
+			blend: string;
+			size?: {
+				width: number;
+				height: number;
+				fit?: 'cover' | 'contain' | 'fill' | 'inside' | 'outside';
+			};
+		}[],
+	) {
+		const config = await Promise.all(
+			images.map(async (c) => {
+				let i = sharp(c.input);
+
+				if (c.size) {
+					const metadata = await i.metadata();
+
+					i = sharp(c.input).resize({
+						width: c.size.width || metadata.width,
+						height: c.size.height || metadata.height,
+						fit: c.size.fit || 'cover',
+					});
+				}
+
+				return {
+					input: await i.toBuffer(),
+					top: c.top,
+					left: c.left,
+					blend: c.blend,
+				} as OverlayOptions;
+			}),
+		);
+
+		const compose = await sharp(baseInput).composite(config);
+
+		return await compose.toBuffer({ resolveWithObject: true }).then((n) => {
+			return { ...n };
+		});
 	}
 }

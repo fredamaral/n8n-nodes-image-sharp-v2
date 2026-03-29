@@ -38,9 +38,7 @@ export class ImageSharp implements INodeType {
 		inputs: ['main'],
 		//outputs: `={{(${configuredOutputs})($parameter)}}`,
 		outputs: ['main'],
-		properties: [
-			...imageSharpOperations,			
-		],
+		properties: [...imageSharpOperations],
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -52,6 +50,9 @@ export class ImageSharp implements INodeType {
 			case 'generate_svg':
 				return ImageSharp.generateImageFromSVG(this);
 			case 'optimize':
+				return ImageSharp.optimize(this);
+			case 'composite':
+				return ImageSharp.composite(this);
 			default:
 				return ImageSharp.optimize(this);
 		}
@@ -210,5 +211,89 @@ export class ImageSharp implements INodeType {
 		//return this.prepareOutputData(items);
 
 		return returnData;
+	}
+
+	static async composite(a: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = a.getInputData();
+		const returnData: INodeExecutionData[] = [];
+
+		let item: INodeExecutionData;
+		let binaryPropertyName: string;
+
+		const binaries = [];
+
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			try {
+				// É assim que você pega o valor do parâmetro 'svgString' para o item atual
+				binaryPropertyName = a.getNodeParameter('binaryPropertyName', itemIndex) as string;
+				item = items[itemIndex];
+				const json = item.json as {
+					top: number;
+					left: number;
+					blend: string;
+					size: {
+						width: number;
+						height: number;
+						fit: 'cover' | 'contain' | 'fill' | 'inside' | 'outside';
+					};
+				};
+
+				if (!item.binary)
+					throw new NodeOperationError(a.getNode(), `input data required`, { itemIndex });
+
+				const inputData = item.binary[binaryPropertyName];
+
+				if (inputData.fileType && inputData.fileType !== 'image')
+					throw new NodeOperationError(
+						a.getNode(),
+						`unsupported file type: ${inputData.fileType}`,
+						{ itemIndex },
+					);
+
+				const input = await a.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
+
+				binaries.push({
+					buffer: input,
+					top: json?.top || 50,
+					left: json?.left || 50,
+					blend: json?.blend || 'over',
+					size: json?.size,
+				});
+			} catch (error) {
+				if (a.continueOnFail()) {
+					returnData.push({ json: { error: error.message }, pairedItem: { item: itemIndex } });
+					continue;
+				}
+				throw error;
+			}
+		}
+
+		const config = binaries.slice(1).map((b) => {
+			return {
+				input: b.buffer,
+				top: b.top,
+				left: b.left,
+				blend: b.blend,
+				size: b.size,
+			};
+		});
+
+		const imageGerada = await SharpService.composite(binaries[0].buffer, config);
+
+		const binary = await a.helpers.prepareBinaryData(
+			imageGerada.data,
+			'composite.png',
+			'image/png',
+		);
+
+		returnData.push({
+			pairedItem: { item: 0 },
+			json: { ...imageGerada.info },
+			binary: {
+				data: binary,
+			},
+		});
+
+		return [returnData];
 	}
 }
