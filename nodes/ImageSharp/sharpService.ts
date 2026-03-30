@@ -76,7 +76,6 @@ export class SharpService {
 			};
 		}[],
 	) {
-
 		const config = await Promise.all(
 			images.map(async (c) => {
 				let i = sharp(c.input);
@@ -100,7 +99,7 @@ export class SharpService {
 			}),
 		);
 
-		const compose = await sharp(baseInput).composite(config);
+		const compose = sharp(baseInput).composite(config).png();
 
 		return await compose.toBuffer({ resolveWithObject: true }).then((n) => {
 			return { ...n };
