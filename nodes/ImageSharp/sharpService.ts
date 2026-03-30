@@ -76,6 +76,7 @@ export class SharpService {
 			};
 		}[],
 	) {
+
 		const config = await Promise.all(
 			images.map(async (c) => {
 				let i = sharp(c.input);

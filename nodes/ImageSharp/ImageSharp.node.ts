@@ -254,9 +254,9 @@ export class ImageSharp implements INodeType {
 
 				binaries.push({
 					buffer: input,
-					top: json?.top || 50,
-					left: json?.left || 50,
-					blend: json?.blend || 'over',
+					top: json?.top ?? 0,
+					left: json?.left ?? 0,
+					blend: json?.blend ?? 'over',
 					size: json?.size,
 				});
 			} catch (error) {
